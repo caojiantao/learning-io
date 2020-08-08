@@ -14,9 +14,9 @@ Java I/O 模型，大致分为 BIO、NIO 和 AIO 三种；
 
     Asynchronous IO，异步非阻塞 IO，JDK 1.7 开始引入；
 
-> 同步/异步：A 调用 B，立即返回，且 B 执行完毕通知 A (异步)；
+> 同步/异步：A 调用 B，立即返回，且 B 执行完毕通知 A，针对的是被调用者 B 而言 (异步)；
 >
-> 阻塞/非阻塞：A 调用 B，A 在挂起的时候可以执行其他操作 (非阻塞)；
+> 阻塞/非阻塞：A 调用 B，A 在挂起的时候可以执行其他操作，针对的是调用者 A 而言 (非阻塞)；
 >
 > 参考：http://tieba.baidu.com/p/6104908266
 
@@ -315,8 +315,72 @@ while (true) {
 
 #### Selector
 
+作为 NIO 的核心，channel 的管理者，selector 的重要性不言而喻。通常用于监听 channel 的四种动作：
 
+1. SelectionKey.OP_CONNECT：连接事件
+2. SelectionKey.OP_ACCEPT：接收事件
+3. SelectionKey.OP_READ：读事件
+4. SelectionKey.OP_WRITE：写事件
+
+引用 selector 实现的一段服务端代码来详细说明：
+
+```java
+// 创建 selector
+Selector selector = Selector.open();
+// 创建 channel
+ServerSocketChannel channel = ServerSocketChannel.open();
+channel.configureBlocking(false);
+InetSocketAddress address = new InetSocketAddress(7000);
+channel.bind(address);
+// 将 channel 注册到 selector 上
+channel.register(selector, SelectionKey.OP_ACCEPT);
+while (true) {
+    // 阻塞监听 channel 事件
+    selector.select();
+    Set<SelectionKey> keys = selector.selectedKeys();
+    Iterator<SelectionKey> iterator = keys.iterator();
+    while (iterator.hasNext()) {
+        SelectionKey key = iterator.next();
+        if (key.isConnectable()) {
+            // 连接成功
+        } else if (key.isAcceptable()) {
+            // 客户端连接成功
+        } else if (key.isReadable()) {
+            // 读事件
+        }
+        iterator.remove();
+   }
+}
+```
+
+> 可以通过 key.selector() 和 key.channel() 分别获取到该事件注册的 selector 和关联的 channel。
 
 ## AIO
 
-## 总结
+相比于 BIO、NIO，AIO 则完全做到了异步化处理，但是由于一个有效请求一个线程，且 linux 上还不够成熟，AIO 目前应用较少。
+
+```java
+AsynchronousServerSocketChannel channel = AsynchronousServerSocketChannel.open().bind(new InetSocketAddress(7000));
+channel.accept(null, new CompletionHandler<AsynchronousSocketChannel, Object>() {
+    @Override
+    public void completed(AsynchronousSocketChannel result, Object attachment) {
+        // 继续监听下一个请求
+        channel.accept(attachment, this);
+        try {
+            // 阻塞等待客户端接收数据
+            ByteBuffer readBuffer = ByteBuffer.allocate(128);
+            result.read(readBuffer).get();
+            System.out.println(new String(readBuffer.array()));
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void failed(Throwable exc, Object attachment) {
+
+    }
+});
+```
+
+> channel.accept() 是异步方法，会立即返回。
